@@ -24,13 +24,13 @@ jobs:
       BUILD_DIR: ${{ github.workspace }}/out
 
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Set up environment
         run: |
           sudo apt update
-          sudo apt install -y build-essential libncurses5-dev bison flex libssl-dev libelf-dev bc wget zip
+          sudo apt install -y git bc bison flex libssl-dev build-essential ccache zip wget curl unzip
 
       - name: Setup ccache
         run: |
@@ -40,7 +40,15 @@ jobs:
           ccache -M 10G
           ccache -s
 
-      - name: Download GCC Prebuilt
+      - name: Restore ccache (if available)
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ env.DEVICE }}-${{ hashFiles('**/*.c') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ env.DEVICE }}-
+
+      - name: Download GCC Prebuilts
         run: |
           mkdir -p gcc
           wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9/aarch64-linux-android-4.9.tar.gz
@@ -50,25 +58,31 @@ jobs:
         run: |
           export PATH=$PWD/gcc/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export ARCH=arm64
           mkdir -p $BUILD_DIR
 
-      - name: Apply KernelSU (if enabled)
+      - name: Apply KernelSU (optional)
         if: ${{ github.event.inputs.use_ksu == 'y' }}
         run: |
           echo "KernelSU enabled — apply patches here"
+          # Add commands to apply KernelSU patches
 
       - name: Build kernel
         run: |
+          set -e
+          echo "Building kernel for $DEVICE..."
           make O=$BUILD_DIR $KERNEL_DEFCONFIG
           make -j$(nproc) O=$BUILD_DIR
+          echo "Kernel build completed!"
 
       - name: Package kernel
         run: |
+          echo "Packaging kernel..."
           zip -r kernel-${DEVICE}-$(date +%Y%m%d).zip $BUILD_DIR/Image.gz-dtb AnyKernel3/*
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: kernel-${DEVICE}
-          path: kernel-${DEVICE}-*.zip
+          name: kernel-${{ env.DEVICE }}
+          path: kernel-${{ env.DEVICE }}-*.zip
