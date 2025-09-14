@@ -22,6 +22,8 @@ jobs:
       KERNEL_DEFCONFIG: exynos990_defconfig
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       BUILD_DIR: ${{ github.workspace }}/out
+      GCC_URL_PRIMARY: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9/aarch64-linux-android-4.9.tar.gz
+      GCC_URL_FALLBACK: https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9.2/aarch64-linux-android-4.9.tar.gz
 
     steps:
       - name: Checkout source
@@ -48,10 +50,17 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ env.DEVICE }}-
 
-      - name: Download GCC Prebuilts
+      - name: Download GCC Prebuilts (primary + fallback)
         run: |
           mkdir -p gcc
-          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9/aarch64-linux-android-4.9.tar.gz
+          echo "Trying primary GCC URL..."
+          wget --tries=3 --timeout=30 --show-progress $GCC_URL_PRIMARY || {
+            echo "Primary failed, trying fallback..."
+            wget --tries=3 --timeout=30 --show-progress $GCC_URL_FALLBACK || {
+              echo "ERROR: Both GCC downloads failed!"
+              exit 1
+            }
+          }
           tar -xf aarch64-linux-android-4.9.tar.gz -C gcc
 
       - name: Export build variables
@@ -66,7 +75,7 @@ jobs:
         if: ${{ github.event.inputs.use_ksu == 'y' }}
         run: |
           echo "KernelSU enabled — apply patches here"
-          # Add commands to apply KernelSU patches
+          # Add KernelSU patch commands if needed
 
       - name: Build kernel
         run: |
