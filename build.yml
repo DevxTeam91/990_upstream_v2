@@ -1,0 +1,79 @@
+name: Build Samsung S20 Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Device codename (e.g., g981b)'
+        required: true
+        default: 'g981b'
+      use_ksu:
+        description: 'Use KernelSU? (y/n)'
+        required: true
+        default: 'n'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DEVICE: ${{ github.event.inputs.device }}
+      USE_KSU: ${{ github.event.inputs.use_ksu }}
+      KERNEL_DEFCONFIG: exynos990_defconfig
+      ARCH: arm64
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      BUILD_DIR: ${{ github.workspace }}/out
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup environment
+        run: |
+          sudo apt update
+          sudo apt install -y git bc bison flex libssl-dev build-essential ccache zip curl
+
+      - name: Setup ccache
+        run: |
+          mkdir -p $CCACHE_DIR
+          export CCACHE_DIR=$CCACHE_DIR
+          export PATH="/usr/lib/ccache:$PATH"
+          ccache -M 10G
+          ccache -s
+
+      - name: Download GCC Prebuilts
+        run: |
+          mkdir -p gcc
+          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9/aarch64-linux-android-4.9.tar.gz
+          tar -xf aarch64-linux-android-4.9.tar.gz -C gcc
+
+      - name: Export Build Variables
+        run: |
+          export PATH=$PWD/gcc/bin:$PATH
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export ARCH=arm64
+          mkdir -p $BUILD_DIR
+
+      - name: Apply KernelSU if enabled
+        if: ${{ github.event.inputs.use_ksu == 'y' }}
+        run: |
+          echo "Applying KernelSU patches..."
+          # Add commands to apply KernelSU patches here
+
+      - name: Build Kernel
+        run: |
+          cd $GITHUB_WORKSPACE
+          make O=$BUILD_DIR $KERNEL_DEFCONFIG
+          make -j$(nproc) O=$BUILD_DIR
+
+      - name: Package Kernel
+        run: |
+          zip -r kernel-${DEVICE}-$(date +%Y%m%d).zip $BUILD_DIR/Image.gz-dtb AnyKernel3/*
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-${DEVICE}
+          path: kernel-${DEVICE}-*.zip
