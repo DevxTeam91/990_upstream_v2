@@ -1,0 +1,74 @@
+name: Build Samsung S20 Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Device codename'
+        required: true
+        default: 'g981b'
+      use_ksu:
+        description: 'Use KernelSU? (y/n)'
+        required: true
+        default: 'n'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DEVICE: ${{ github.event.inputs.device }}
+      USE_KSU: ${{ github.event.inputs.use_ksu }}
+      ARCH: arm64
+      KERNEL_DEFCONFIG: exynos990_defconfig
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      BUILD_DIR: ${{ github.workspace }}/out
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev bison flex libssl-dev libelf-dev bc wget zip
+
+      - name: Setup ccache
+        run: |
+          mkdir -p $CCACHE_DIR
+          export CCACHE_DIR=$CCACHE_DIR
+          export PATH="/usr/lib/ccache:$PATH"
+          ccache -M 10G
+          ccache -s
+
+      - name: Download GCC Prebuilt
+        run: |
+          mkdir -p gcc
+          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86/releases/download/gcc-4.9/aarch64-linux-android-4.9.tar.gz
+          tar -xf aarch64-linux-android-4.9.tar.gz -C gcc
+
+      - name: Export build variables
+        run: |
+          export PATH=$PWD/gcc/bin:$PATH
+          export CROSS_COMPILE=aarch64-linux-android-
+          export ARCH=arm64
+          mkdir -p $BUILD_DIR
+
+      - name: Apply KernelSU (if enabled)
+        if: ${{ github.event.inputs.use_ksu == 'y' }}
+        run: |
+          echo "KernelSU enabled — apply patches here"
+
+      - name: Build kernel
+        run: |
+          make O=$BUILD_DIR $KERNEL_DEFCONFIG
+          make -j$(nproc) O=$BUILD_DIR
+
+      - name: Package kernel
+        run: |
+          zip -r kernel-${DEVICE}-$(date +%Y%m%d).zip $BUILD_DIR/Image.gz-dtb AnyKernel3/*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-${DEVICE}
+          path: kernel-${DEVICE}-*.zip
